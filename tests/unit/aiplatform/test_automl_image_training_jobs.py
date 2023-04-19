@@ -25,6 +25,7 @@ from google.protobuf import struct_pb2
 from google.cloud import aiplatform
 from google.cloud.aiplatform import base
 from google.cloud.aiplatform import datasets
+from google.cloud.aiplatform import hyperparameter_tuning as hpt
 from google.cloud.aiplatform import initializer
 from google.cloud.aiplatform import models
 from google.cloud.aiplatform import schema
@@ -39,6 +40,7 @@ from google.cloud.aiplatform.compat.types import (
     encryption_spec as gca_encryption_spec,
     model as gca_model,
     pipeline_state as gca_pipeline_state,
+    study as gca_study_compat,
     training_pipeline as gca_training_pipeline,
 )
 import constants as test_constants
@@ -96,6 +98,33 @@ _TEST_TRAINING_TASK_INPUTS_WITH_UPTRAIN_BASE_MODEL = json_format.ParseDict(
         "uptrainBaseModelId": _TEST_MODEL_ID,
     },
     struct_pb2.Value(),
+)
+
+_TEST_CHECKPOINT_NAME = "gs://coca_ckpt_uri/saved_model"
+_TEST_TRAINER_TYPE = "MODEL_GARDEN_TRAINER"
+_TEST_TRAINER_CONFIG = json_format.ParseDict(
+    {
+        "config_key_1": "config_value_1",
+        "config_key_2": "config_value_2",
+    },
+    struct_pb2.Value(),
+)
+_TEST_DATASET_CONFIG = json_format.ParseDict(
+    {
+        "config_key_3": "config_value_3",
+        "config_key_4": "config_value_4",
+    },
+    struct_pb2.Value(),
+)
+_TEST_METRIC_SPEC_KEY = "test-metric"
+_TEST_METRIC_SPEC_VALUE = "maximize"
+_TEST_SEARCH_ALGORITHM = "random"
+_TEST_MEASUREMENT_SELECTION = "best"
+_TEST_CONDITIONAL_PARAMETER_DECAY = hpt.DoubleParameterSpec(
+    min=1e-07, max=1, scale="linear", parent_values=[32, 64]
+)
+_TEST_CONDITIONAL_PARAMETER_LR = hpt.DoubleParameterSpec(
+    min=1e-07, max=1, scale="linear", parent_values=[4, 8, 16]
 )
 
 _TEST_FRACTION_SPLIT_TRAINING = 0.6
@@ -269,6 +298,80 @@ class TestAutoMLImageTrainingJob:
         assert job._prediction_type == _TEST_PREDICTION_TYPE_ICN
         assert job._multi_label is True
         assert job._base_model == mock_model
+
+    def test_init_job_with_tunable_parameters(self, mock_model):
+        """Ensure all private members are set correctly at initialization."""
+
+        aiplatform.init(project=_TEST_PROJECT)
+
+        job = training_jobs.AutoMLImageTrainingJob(
+            display_name=_TEST_DISPLAY_NAME,
+            prediction_type=_TEST_PREDICTION_TYPE_ICN,
+            model_type=_TEST_MODEL_TYPE_MOBILE,
+            base_model=mock_model,
+            multi_label=True,
+            trainer_type=_TEST_TRAINER_TYPE,
+            checkpoint_name=_TEST_CHECKPOINT_NAME,
+            trainer_config=_TEST_TRAINER_CONFIG,
+            dataset_config=_TEST_DATASET_CONFIG,
+            metric_spec={_TEST_METRIC_SPEC_KEY: _TEST_METRIC_SPEC_VALUE},
+            parameter_spec={
+                "lr": hpt.DoubleParameterSpec(min=0.001, max=0.1, scale="log"),
+                "units": hpt.IntegerParameterSpec(min=4, max=1028, scale="linear"),
+                "activation": hpt.CategoricalParameterSpec(
+                    values=["relu", "sigmoid", "elu", "selu", "tanh"]
+                ),
+                "batch_size": hpt.DiscreteParameterSpec(
+                    values=[4, 8, 16, 32, 64],
+                    scale="linear",
+                    conditional_parameter_spec={
+                        "decay": _TEST_CONDITIONAL_PARAMETER_DECAY,
+                        "learning_rate": _TEST_CONDITIONAL_PARAMETER_LR,
+                    },
+                ),
+            },
+            search_algorithm=_TEST_SEARCH_ALGORITHM,
+            measurement_selection=_TEST_MEASUREMENT_SELECTION,
+        )
+
+        assert job._display_name == _TEST_DISPLAY_NAME
+        assert job._model_type == _TEST_MODEL_TYPE_MOBILE
+        assert job._prediction_type == _TEST_PREDICTION_TYPE_ICN
+        assert job._multi_label is True
+        assert job._base_model == mock_model
+        assert job._trainer_type == _TEST_TRAINER_TYPE
+        assert job._checkpoint_name == _TEST_CHECKPOINT_NAME
+        assert job._trainer_config == _TEST_TRAINER_CONFIG
+        assert job._dataset_config == _TEST_DATASET_CONFIG
+        assert job._study_spec == gca_study_compat.StudySpec(
+            metrics=[
+                gca_study_compat.StudySpec.MetricSpec(
+                    metric_id=_TEST_METRIC_SPEC_KEY,
+                    goal=_TEST_METRIC_SPEC_VALUE.upper(),
+                ),
+            ],
+            parameters=[
+                hpt.DoubleParameterSpec(
+                    min=0.001, max=0.1, scale="log"
+                )._to_parameter_spec(parameter_id="lr"),
+                hpt.IntegerParameterSpec(
+                    min=4, max=1028, scale="linear"
+                )._to_parameter_spec(parameter_id="units"),
+                hpt.CategoricalParameterSpec(
+                    values=["relu", "sigmoid", "elu", "selu", "tanh"]
+                )._to_parameter_spec(parameter_id="activation"),
+                hpt.DiscreteParameterSpec(
+                    values=[4, 8, 16, 32, 64],
+                    scale="linear",
+                    conditional_parameter_spec={
+                        "decay": _TEST_CONDITIONAL_PARAMETER_DECAY,
+                        "learning_rate": _TEST_CONDITIONAL_PARAMETER_LR,
+                    },
+                )._to_parameter_spec(parameter_id="batch_size"),
+            ],
+            algorithm=gca_study_compat.StudySpec.Algorithm.RANDOM_SEARCH,
+            measurement_selection_type=gca_study_compat.StudySpec.MeasurementSelectionType.BEST_MEASUREMENT,
+        )
 
     def test_init_wrong_parameters(self, mock_model):
         """Ensure correct exceptions are raised when initializing with invalid args"""
