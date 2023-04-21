@@ -16,7 +16,6 @@
 #
 
 from typing import Dict, List, Optional, Tuple
-import warnings
 
 from google.cloud.aiplatform import datasets
 
@@ -51,8 +50,8 @@ def get_default_column_transformations(
 
 
 def validate_and_get_column_transformations(
-    column_specs: Optional[Dict[str, str]],
-    column_transformations: Optional[List[Dict[str, Dict[str, str]]]],
+    column_specs: Optional[Dict[str, str]] = None,
+    column_transformations: Optional[List[Dict[str, Dict[str, str]]]] = None,
 ) -> List[Dict[str, Dict[str, str]]]:
     """Validates column specs and transformations, then returns processed transformations.
 
@@ -93,14 +92,6 @@ def validate_and_get_column_transformations(
         raise ValueError(
             "Both column_transformations and column_specs were passed. Only one is allowed."
         )
-    if column_transformations is not None:
-        warnings.simplefilter("always", DeprecationWarning)
-        warnings.warn(
-            "consider using column_specs instead. column_transformations will be deprecated in the future.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
         return column_transformations
     elif column_specs is not None:
         return [
@@ -108,4 +99,4 @@ def validate_and_get_column_transformations(
             for column_name, transformation in column_specs.items()
         ]
     else:
-        return None
+        return column_transformations
